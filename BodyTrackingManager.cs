@@ -1,6 +1,7 @@
 using System.Collections.Generic;
+using System.Text;
 using UnityEngine;
-using UnityEngine.XR;
+using Valve.VR;
 
 namespace VIMBodyTracking
 {
@@ -18,7 +19,12 @@ namespace VIMBodyTracking
         private float _refreshTimer;
 
         void Awake() { Instance = this; }
-        void Start() { RefreshTrackerList(); }
+
+        void Start()
+        {
+            TryInitOpenVR();
+            RefreshTrackerList();
+        }
 
         void Update()
         {
@@ -29,28 +35,45 @@ namespace VIMBodyTracking
             DriveAvatar();
         }
 
+        private void TryInitOpenVR()
+        {
+            try
+            {
+                if (OpenVR.System != null) return;
+                var err = EVRInitError.None;
+                OpenVR.Init(ref err, EVRApplicationType.VRApplication_Overlay);
+                if (err != EVRInitError.None)
+                    Plugin.Log.LogWarning($"OpenVR init: {err}");
+                else
+                    Plugin.Log.LogInfo("OpenVR initialized.");
+            }
+            catch (System.Exception e)
+            {
+                Plugin.Log.LogWarning($"OpenVR init failed: {e.Message}");
+            }
+        }
+
         public void RefreshTrackerList()
         {
             DetectedTrackers.Clear();
-            var all = new List<InputDevice>();
-            InputDevices.GetDevicesWithCharacteristics(InputDeviceCharacteristics.TrackedDevice, all);
-            int index = 0;
-            foreach (var d in all)
+            var system = OpenVR.System;
+            if (system == null)
             {
-                bool isHMD = d.characteristics.HasFlag(InputDeviceCharacteristics.HeadMounted);
-                bool isController = d.characteristics.HasFlag(InputDeviceCharacteristics.Controller);
-                if (!isHMD && !isController)
-                {
-                    DetectedTrackers.Add(new TrackerDevice
-                    {
-                        Index = index,
-                        Serial = string.IsNullOrEmpty(d.name) ? $"Tracker {index}" : d.name,
-                        Device = d
-                    });
-                    index++;
-                }
+                TryInitOpenVR();
+                system = OpenVR.System;
+                if (system == null) { Plugin.Log.LogWarning("OpenVR.System null."); return; }
             }
-            Plugin.Log.LogInfo($"Found {DetectedTrackers.Count} tracker(s).");
+
+            for (uint i = 0; i < OpenVR.k_unMaxTrackedDeviceCount; i++)
+            {
+                if (system.GetTrackedDeviceClass(i) != ETrackedDeviceClass.GenericTracker) continue;
+                var sb = new StringBuilder(64);
+                var err = ETrackedPropertyError.TrackedProp_Success;
+                system.GetStringTrackedDeviceProperty(i, ETrackedDeviceProperty.Prop_SerialNumber_String, sb, 64, ref err);
+                DetectedTrackers.Add(new TrackerDevice { Index = (int)i, Serial = sb.ToString() });
+                Plugin.Log.LogInfo($"Tracker found: [{i}] {sb}");
+            }
+            Plugin.Log.LogInfo($"Total trackers: {DetectedTrackers.Count}");
         }
 
         public void AutoAssignTracker()
@@ -63,16 +86,29 @@ namespace VIMBodyTracking
         private void ApplyChestPose()
         {
             if (ChestTrackerIndex < 0 || ChestTrackerIndex >= DetectedTrackers.Count) return;
-            var device = DetectedTrackers[ChestTrackerIndex].Device;
+            var system = OpenVR.System;
+            if (system == null) return;
 
-            Vector3 pos; Quaternion rot;
-            device.TryGetFeatureValue(CommonUsages.devicePosition, out pos);
-            device.TryGetFeatureValue(CommonUsages.deviceRotation, out rot);
+            var poses = new TrackedDevicePose_t[OpenVR.k_unMaxTrackedDeviceCount];
+            system.GetDeviceToAbsoluteTrackingPose(
+                ETrackingUniverseOrigin.TrackingUniverseStanding, 0, poses);
+
+            uint idx = (uint)DetectedTrackers[ChestTrackerIndex].Index;
+            if (!poses[idx].bPoseIsValid) return;
+
+            var m = poses[idx].mDeviceToAbsoluteTracking;
+            var rawPos = new Vector3(m.m3, m.m7, -m.m11);
+            var mat = new Matrix4x4();
+            mat[0,0]= m.m0; mat[0,1]= m.m1; mat[0,2]=-m.m2; mat[0,3]= m.m3;
+            mat[1,0]= m.m4; mat[1,1]= m.m5; mat[1,2]=-m.m6; mat[1,3]= m.m7;
+            mat[2,0]=-m.m8; mat[2,1]=-m.m9; mat[2,2]= m.m10; mat[2,3]=-m.m11;
+            mat[3,0]=0f; mat[3,1]=0f; mat[3,2]=0f; mat[3,3]=1f;
+            var rawRot = mat.rotation;
 
             var offset = new Vector3(0, Plugin.CfgOffsetChestY.Value, Plugin.CfgOffsetChestZ.Value);
             float sp = Plugin.CfgSmoothingChest.Value * Time.deltaTime;
-            _chestPos = Vector3.Lerp(_chestPos, pos + offset, sp);
-            _chestRot = Quaternion.Slerp(_chestRot, rot, sp);
+            _chestPos = Vector3.Lerp(_chestPos, rawPos + offset, sp);
+            _chestRot = Quaternion.Slerp(_chestRot, rawRot, sp);
         }
 
         private void DriveAvatar()
@@ -111,6 +147,5 @@ namespace VIMBodyTracking
     {
         public int Index;
         public string Serial;
-        public InputDevice Device;
     }
 }
