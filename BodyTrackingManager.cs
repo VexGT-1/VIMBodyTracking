@@ -1,8 +1,9 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Text;
 using UnityEngine;
-using UnityEngine.XR;
 
 namespace VIMBodyTracking
 {
@@ -19,16 +20,28 @@ namespace VIMBodyTracking
         public List<TrackerDevice> DetectedTrackers { get; } = new List<TrackerDevice>();
         private float _refreshTimer;
 
-        // SteamVR reflection
-        private object _steamVRInstance;
-        private Type _steamVRType;
-        private bool _steamVRReady;
+        private object _vrSystem;
+        private MethodInfo _getClassMethod;
+        private MethodInfo _getPoseMethod;
+        private Type _poseElementType;
+        private FieldInfo _poseValidField;
+        private FieldInfo _poseMatField;
+        private Type _matType;
+        private bool _ready;
 
         void Awake() { Instance = this; }
 
         void Start()
         {
-            TryGetSteamVR();
+            // Wait 5 seconds for SteamVR to fully initialize before trying
+            StartCoroutine(DelayedInit());
+        }
+
+        private IEnumerator DelayedInit()
+        {
+            Plugin.Log.LogInfo("Waiting 5s for SteamVR to initialize...");
+            yield return new WaitForSeconds(5f);
+            TryInit();
             RefreshTrackerList();
         }
 
@@ -36,79 +49,72 @@ namespace VIMBodyTracking
         {
             if (!TrackingActive) return;
             _refreshTimer += Time.deltaTime;
-            if (_refreshTimer >= 3f) { _refreshTimer = 0f; RefreshTrackerList(); }
+            if (_refreshTimer >= 3f)
+            {
+                _refreshTimer = 0f;
+                if (!_ready) TryInit();
+                RefreshTrackerList();
+            }
             ApplyChestPose();
             DriveAvatar();
         }
 
-        private void TryGetSteamVR()
+        private void TryInit()
         {
             try
             {
-                // Find SteamVR type in loaded assemblies
+                Type openVRType = null;
                 foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
                 {
-                    _steamVRType = asm.GetType("Valve.VR.OpenVR");
-                    if (_steamVRType != null) break;
+                    openVRType = asm.GetType("Valve.VR.OpenVR");
+                    if (openVRType != null) break;
                 }
 
-                if (_steamVRType == null)
+                if (openVRType == null) { Plugin.Log.LogWarning("Valve.VR.OpenVR not found."); return; }
+
+                var sysProp = openVRType.GetProperty("System", BindingFlags.Public | BindingFlags.Static);
+                if (sysProp == null) { Plugin.Log.LogWarning("OpenVR.System property not found."); return; }
+
+                _vrSystem = sysProp.GetValue(null);
+                if (_vrSystem == null) { Plugin.Log.LogWarning("OpenVR.System still null."); return; }
+
+                Plugin.Log.LogInfo($"Got OpenVR.System: {_vrSystem.GetType().FullName}");
+
+                var sysType = _vrSystem.GetType();
+                _getClassMethod = sysType.GetMethod("GetTrackedDeviceClass");
+                _getPoseMethod = sysType.GetMethod("GetDeviceToAbsoluteTrackingPose");
+
+                if (_getPoseMethod != null)
                 {
-                    Plugin.Log.LogWarning("Could not find Valve.VR.OpenVR type.");
-                    return;
+                    _poseElementType = _getPoseMethod.GetParameters()[2].ParameterType.GetElementType();
+                    _poseValidField = _poseElementType.GetField("bPoseIsValid");
+                    _poseMatField = _poseElementType.GetField("mDeviceToAbsoluteTracking");
+                    if (_poseMatField != null) _matType = _poseMatField.FieldType;
                 }
 
-                // Get the System property
-                var sysProp = _steamVRType.GetProperty("System",
-                    BindingFlags.Public | BindingFlags.Static);
-                if (sysProp == null)
-                {
-                    Plugin.Log.LogWarning("Could not find OpenVR.System property.");
-                    return;
-                }
-
-                _steamVRInstance = sysProp.GetValue(null);
-                _steamVRReady = _steamVRInstance != null;
-                Plugin.Log.LogInfo($"SteamVR via reflection: {(_steamVRReady ? "ready" : "null")}");
+                _ready = _getClassMethod != null && _getPoseMethod != null;
+                Plugin.Log.LogInfo($"SteamVR ready: {_ready}");
             }
-            catch (Exception e)
-            {
-                Plugin.Log.LogWarning($"SteamVR reflection failed: {e.Message}");
-            }
+            catch (Exception e) { Plugin.Log.LogWarning($"TryInit error: {e.Message}"); }
         }
 
         public void RefreshTrackerList()
         {
             DetectedTrackers.Clear();
-
-            if (!_steamVRReady) TryGetSteamVR();
-            if (!_steamVRReady) { Plugin.Log.LogWarning("SteamVR not ready."); return; }
+            if (!_ready) return;
 
             try
             {
-                var sysType = _steamVRInstance.GetType();
-
-                // GetTrackedDeviceClass method
-                var getClassMethod = sysType.GetMethod("GetTrackedDeviceClass");
-                if (getClassMethod == null) { Plugin.Log.LogWarning("GetTrackedDeviceClass not found."); return; }
-
                 for (uint i = 0; i < 64; i++)
                 {
-                    var deviceClass = getClassMethod.Invoke(_steamVRInstance, new object[] { i });
-                    int classInt = Convert.ToInt32(deviceClass);
-                    // GenericTracker = 3
-                    if (classInt != 3) continue;
-
+                    var cls = Convert.ToInt32(_getClassMethod.Invoke(_vrSystem, new object[] { i }));
+                    if (cls != 3) continue;
                     DetectedTrackers.Add(new TrackerDevice { Index = (int)i, Serial = $"Tracker_{i}" });
-                    Plugin.Log.LogInfo($"Tracker found at index {i}");
+                    Plugin.Log.LogInfo($"Tracker found: [{i}]");
                 }
-
                 Plugin.Log.LogInfo($"Total trackers: {DetectedTrackers.Count}");
             }
-            catch (Exception e)
-            {
-                Plugin.Log.LogWarning($"RefreshTrackerList error: {e.Message}");
-            }
+            catch (Exception e) { Plugin.Log.LogWarning($"RefreshTrackerList error: {e.Message}"); }
         }
 
         public void AutoAssignTracker()
@@ -120,41 +126,28 @@ namespace VIMBodyTracking
         private void ApplyChestPose()
         {
             if (ChestTrackerIndex < 0 || ChestTrackerIndex >= DetectedTrackers.Count) return;
-            if (!_steamVRReady) return;
+            if (!_ready) return;
 
             try
             {
-                var sysType = _steamVRInstance.GetType();
-                var getPoseMethod = sysType.GetMethod("GetDeviceToAbsoluteTrackingPose");
-                if (getPoseMethod == null) return;
-
-                // Create pose array via reflection
-                var poseArrayType = getPoseMethod.GetParameters()[2].ParameterType;
-                var poses = Array.CreateInstance(poseArrayType.GetElementType(), 64);
-                getPoseMethod.Invoke(_steamVRInstance, new object[] { 1, 0f, poses });
+                var poses = Array.CreateInstance(_poseElementType, 64);
+                _getPoseMethod.Invoke(_vrSystem, new object[] { 1, 0f, poses });
 
                 uint idx = (uint)DetectedTrackers[ChestTrackerIndex].Index;
                 var pose = poses.GetValue((int)idx);
                 if (pose == null) return;
 
-                var poseType = pose.GetType();
-                var validField = poseType.GetField("bPoseIsValid");
-                if (validField == null) return;
-                bool valid = (bool)validField.GetValue(pose);
+                bool valid = (bool)_poseValidField.GetValue(pose);
                 if (!valid) return;
 
-                var matField = poseType.GetField("mDeviceToAbsoluteTracking");
-                if (matField == null) return;
-                var mat34 = matField.GetValue(pose);
-                var matType = mat34.GetType();
+                var mat34 = _poseMatField.GetValue(pose);
+                float G(string n) => (float)_matType.GetField(n).GetValue(mat34);
 
-                float Get(string name) => (float)matType.GetField(name).GetValue(mat34);
-
-                var rawPos = new Vector3(Get("m3"), Get("m7"), -Get("m11"));
+                var rawPos = new Vector3(G("m3"), G("m7"), -G("m11"));
                 var mat = new Matrix4x4();
-                mat[0,0]= Get("m0"); mat[0,1]= Get("m1"); mat[0,2]=-Get("m2"); mat[0,3]= Get("m3");
-                mat[1,0]= Get("m4"); mat[1,1]= Get("m5"); mat[1,2]=-Get("m6"); mat[1,3]= Get("m7");
-                mat[2,0]=-Get("m8"); mat[2,1]=-Get("m9"); mat[2,2]= Get("m10"); mat[2,3]=-Get("m11");
+                mat[0,0]= G("m0"); mat[0,1]= G("m1"); mat[0,2]=-G("m2"); mat[0,3]= G("m3");
+                mat[1,0]= G("m4"); mat[1,1]= G("m5"); mat[1,2]=-G("m6"); mat[1,3]= G("m7");
+                mat[2,0]=-G("m8"); mat[2,1]=-G("m9"); mat[2,2]= G("m10"); mat[2,3]=-G("m11");
                 mat[3,0]=0f; mat[3,1]=0f; mat[3,2]=0f; mat[3,3]=1f;
 
                 var offset = new Vector3(0, Plugin.CfgOffsetChestY.Value, Plugin.CfgOffsetChestZ.Value);
@@ -162,10 +155,7 @@ namespace VIMBodyTracking
                 _chestPos = Vector3.Lerp(_chestPos, rawPos + offset, sp);
                 _chestRot = Quaternion.Slerp(_chestRot, mat.rotation, sp);
             }
-            catch (Exception e)
-            {
-                Plugin.Log.LogWarning($"ApplyChestPose error: {e.Message}");
-            }
+            catch (Exception e) { Plugin.Log.LogWarning($"ApplyChestPose error: {e.Message}"); }
         }
 
         private void DriveAvatar()
