@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.XR;
 
 namespace VIMBodyTracking
 {
@@ -56,10 +57,18 @@ namespace VIMBodyTracking
             GUILayout.Space(4);
 
             if (mgr.DetectedTrackers.Count == 0)
+            {
                 GUILayout.Label("No trackers found. Turn on SteamVR trackers.");
+            }
             else
-                foreach (var t in mgr.DetectedTrackers)
-                    GUILayout.Label($"[{t.Index}] {t.Serial} {(t.Index == mgr.ChestTrackerIndex ? "<- CHEST" : "")}");
+            {
+                for (int i = 0; i < mgr.DetectedTrackers.Count; i++)
+                {
+                    var t = mgr.DetectedTrackers[i];
+                    string isChest = i == mgr.ChestTrackerIndex ? " <- CHEST" : "";
+                    GUILayout.Label($"[{i}] {t.name}{isChest}");
+                }
+            }
 
             GUILayout.Space(8);
             if (GUILayout.Button("Auto-Assign Chest Tracker", GUILayout.Height(28)))
@@ -72,7 +81,8 @@ namespace VIMBodyTracking
             if (GUILayout.Button(">", GUILayout.Width(28))) mgr.ChestTrackerIndex = Mathf.Min(mgr.DetectedTrackers.Count - 1, mgr.ChestTrackerIndex + 1);
             GUILayout.EndHorizontal();
 
-            if (GUILayout.Button("Refresh Trackers", GUILayout.Height(26))) mgr.RefreshTrackerList();
+            if (GUILayout.Button("Refresh Trackers", GUILayout.Height(26)))
+                mgr.RefreshTrackerList();
         }
 
         private void DrawOffsetsTab()
@@ -82,7 +92,11 @@ namespace VIMBodyTracking
             DrawFloatControl("Chest Y", Plugin.CfgOffsetChestY, 0.05f, -1f, 1f);
             DrawFloatControl("Chest Z", Plugin.CfgOffsetChestZ, 0.05f, -1f, 1f);
             GUILayout.Space(8);
-            if (GUILayout.Button("Reset Offsets", GUILayout.Height(26))) { Plugin.CfgOffsetChestY.Value = 0f; Plugin.CfgOffsetChestZ.Value = 0f; }
+            if (GUILayout.Button("Reset Offsets", GUILayout.Height(26)))
+            {
+                Plugin.CfgOffsetChestY.Value = 0f;
+                Plugin.CfgOffsetChestZ.Value = 0f;
+            }
         }
 
         private void DrawSmoothingTab()
@@ -91,7 +105,8 @@ namespace VIMBodyTracking
             GUILayout.Space(6);
             DrawFloatControl("Chest", Plugin.CfgSmoothingChest, 1f, 1f, 20f);
             GUILayout.Space(8);
-            if (GUILayout.Button("Reset Smoothing", GUILayout.Height(26))) Plugin.CfgSmoothingChest.Value = 8f;
+            if (GUILayout.Button("Reset Smoothing", GUILayout.Height(26)))
+                Plugin.CfgSmoothingChest.Value = 8f;
         }
 
         private static void DrawFloatControl(string label, BepInEx.Configuration.ConfigEntry<float> entry, float step, float min, float max)
