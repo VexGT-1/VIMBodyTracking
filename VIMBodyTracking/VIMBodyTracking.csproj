@@ -11,8 +11,8 @@
     <PackageReference Include="UnityEngine.Modules" Version="2021.3.33" />
   </ItemGroup>
   <ItemGroup>
-    <Reference Include="valve.vr.interop">
-      <HintPath>../valve.vr.interop.dll</HintPath>
+    <Reference Include="SteamVR">
+      <HintPath>../SteamVR.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
