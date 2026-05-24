@@ -10,8 +10,12 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '6.0.x'
-      - name: Add BepInEx NuGet feed
+      - name: Add BepInEx feed
         run: dotnet nuget add source https://nuget.bepinex.dev/v3/index.json --name bepinex
+      - name: Download openvr_api
+        run: |
+          curl -L -o openvr_api.dll "https://github.com/ValveSoftware/openvr/raw/master/bin/win64/openvr_api.dll"
+          curl -L -o valve.vr.interop.dll "https://github.com/ValveSoftware/steamvr_unity_plugin/raw/master/Assets/SteamVR/Plugins/x86_64/openvr_api.dll"
       - name: Restore
         run: dotnet restore VIMBodyTracking/VIMBodyTracking.csproj
       - name: Build
