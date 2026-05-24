@@ -10,7 +10,12 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '6.0.x'
-      - run: dotnet build VIMBodyTracking/VIMBodyTracking.csproj -c Release --nologo
+      - name: Add NuGet source
+        run: dotnet nuget add source https://api.nuget.org/v3/index.json --name nuget.org
+      - name: Restore
+        run: dotnet restore VIMBodyTracking/VIMBodyTracking.csproj
+      - name: Build
+        run: dotnet build VIMBodyTracking/VIMBodyTracking.csproj -c Release --nologo --no-restore
       - uses: actions/upload-artifact@v4
         with:
           name: VIMBodyTracking-DLL
