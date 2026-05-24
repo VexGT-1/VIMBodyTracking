@@ -11,8 +11,8 @@
     <PackageReference Include="UnityEngine.Modules" Version="2021.3.33" />
   </ItemGroup>
   <ItemGroup>
-    <Reference Include="openvr_api">
-      <HintPath>../openvr_api.dll</HintPath>
+    <Reference Include="valve.vr.interop">
+      <HintPath>../valve.vr.interop.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
