@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
-using OpenVR.NET;
-
+using UnityEngine.XR;
 
 namespace VIMBodyTracking
 {
@@ -16,31 +15,14 @@ namespace VIMBodyTracking
         private Transform _avatarRoot;
         private Transform _bodyBone;
         public List<TrackerDevice> DetectedTrackers { get; } = new List<TrackerDevice>();
-
-        private VR _vr;
         private float _refreshTimer;
 
         void Awake() { Instance = this; }
-
-        void Start()
-        {
-            try
-            {
-                _vr = new VR();
-                _vr.Initialize();
-                Plugin.Log.LogInfo("OpenVR.NET initialized.");
-            }
-            catch (System.Exception e)
-            {
-                Plugin.Log.LogWarning($"OpenVR init failed: {e.Message}");
-            }
-            RefreshTrackerList();
-        }
+        void Start() { RefreshTrackerList(); }
 
         void Update()
         {
             if (!TrackingActive) return;
-            _vr?.Update();
             _refreshTimer += Time.deltaTime;
             if (_refreshTimer >= 3f) { _refreshTimer = 0f; RefreshTrackerList(); }
             ApplyChestPose();
@@ -50,18 +32,20 @@ namespace VIMBodyTracking
         public void RefreshTrackerList()
         {
             DetectedTrackers.Clear();
-            if (_vr == null) return;
-
+            var all = new List<InputDevice>();
+            InputDevices.GetDevicesWithCharacteristics(InputDeviceCharacteristics.TrackedDevice, all);
             int index = 0;
-            foreach (var device in _vr.TrackedDevices)
+            foreach (var d in all)
             {
-                if (device.DeviceType == DeviceType.GenericTracker)
+                bool isHMD = d.characteristics.HasFlag(InputDeviceCharacteristics.HeadMounted);
+                bool isController = d.characteristics.HasFlag(InputDeviceCharacteristics.Controller);
+                if (!isHMD && !isController)
                 {
                     DetectedTrackers.Add(new TrackerDevice
                     {
                         Index = index,
-                        Serial = device.Serial ?? $"Tracker {index}",
-                        Device = device
+                        Serial = string.IsNullOrEmpty(d.name) ? $"Tracker {index}" : d.name,
+                        Device = d
                     });
                     index++;
                 }
@@ -73,22 +57,22 @@ namespace VIMBodyTracking
         {
             if (DetectedTrackers.Count == 0) return;
             ChestTrackerIndex = 0;
+            Plugin.Log.LogInfo("Auto-assigned tracker 0 as chest.");
         }
 
         private void ApplyChestPose()
         {
             if (ChestTrackerIndex < 0 || ChestTrackerIndex >= DetectedTrackers.Count) return;
             var device = DetectedTrackers[ChestTrackerIndex].Device;
-            if (device == null) return;
 
-            var pose = device.RenderPose;
-            var rawPos = new Vector3(pose.Position.X, pose.Position.Y, pose.Position.Z);
-            var rawRot = new Quaternion(pose.Orientation.X, pose.Orientation.Y, pose.Orientation.Z, pose.Orientation.W);
+            Vector3 pos; Quaternion rot;
+            device.TryGetFeatureValue(CommonUsages.devicePosition, out pos);
+            device.TryGetFeatureValue(CommonUsages.deviceRotation, out rot);
 
             var offset = new Vector3(0, Plugin.CfgOffsetChestY.Value, Plugin.CfgOffsetChestZ.Value);
             float sp = Plugin.CfgSmoothingChest.Value * Time.deltaTime;
-            _chestPos = Vector3.Lerp(_chestPos, rawPos + offset, sp);
-            _chestRot = Quaternion.Slerp(_chestRot, rawRot, sp);
+            _chestPos = Vector3.Lerp(_chestPos, pos + offset, sp);
+            _chestRot = Quaternion.Slerp(_chestRot, rot, sp);
         }
 
         private void DriveAvatar()
@@ -108,6 +92,7 @@ namespace VIMBodyTracking
                      ?? FindChildRecursive(_avatarRoot, "chest")
                      ?? FindChildRecursive(_avatarRoot, "spine")
                      ?? _avatarRoot;
+            Plugin.Log.LogInfo($"Body bone: {_bodyBone?.name ?? "none"}");
         }
 
         private static Transform FindChildRecursive(Transform parent, string name)
@@ -126,6 +111,6 @@ namespace VIMBodyTracking
     {
         public int Index;
         public string Serial;
-        public object Device;
+        public InputDevice Device;
     }
 }
