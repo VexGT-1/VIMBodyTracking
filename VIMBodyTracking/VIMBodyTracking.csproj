@@ -5,10 +5,16 @@
     <Nullable>disable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
-
   <ItemGroup>
-    <PackageReference Include="BepInEx.GameLibs.TemporalFix" Version="*" />
-    <PackageReference Include="BepInEx.Core" Version="5.*" />
-    <PackageReference Include="UnityEngine.Modules" Version="2021.*" />
+    <PackageReference Include="BepInEx.Analyzers" Version="1.*" PrivateAssets="all" />
+    <PackageReference Include="BepInEx.Core" Version="5.4.21" />
+    <PackageReference Include="BepInEx.PluginInfoProps" Version="1.*" />
+    <PackageReference Include="UnityEngine.Modules" Version="2021.3.29" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../Plugin.cs" />
+    <Compile Include="../BodyTrackingManager.cs" />
+    <Compile Include="../MenuController.cs" />
+    <Compile Include="../OpenVRExtensions.cs" />
   </ItemGroup>
 </Project>
