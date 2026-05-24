@@ -15,6 +15,10 @@
       <HintPath>../SteamVR.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="Unity.XR.OpenVR">
+      <HintPath>../Unity.XR.OpenVR.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="../Plugin.cs" />
