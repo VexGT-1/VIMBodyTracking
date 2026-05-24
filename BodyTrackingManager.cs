@@ -4,7 +4,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using UnityEngine;
 
-// ── Minimal OpenVR types defined inline so no external DLL reference needed ──
 namespace Valve.VR
 {
     public enum EVRInitError { None = 0 }
@@ -30,35 +29,44 @@ namespace Valve.VR
     public static class OpenVR
     {
         public const uint k_unMaxTrackedDeviceCount = 64;
-        private static CVRSystem _system;
-        public static CVRSystem System => _system;
+        private static IntPtr _systemPtr = IntPtr.Zero;
+        public static bool IsInitialized => _systemPtr != IntPtr.Zero;
 
         public static void Init(ref EVRInitError err, EVRApplicationType type)
         {
             try
             {
-                IntPtr ptr = NativeEntrypoints.VR_Init(ref err, (uint)type);
-                if (err == EVRInitError.None) _system = new CVRSystem(ptr);
+                _systemPtr = NativeEntrypoints.VR_Init(ref err, (uint)type);
             }
-            catch { err = EVRInitError.None; }
+            catch (Exception e)
+            {
+                err = EVRInitError.None;
+                VIMBodyTracking.Plugin.Log.LogWarning($"VR_Init exception: {e.Message}");
+            }
         }
-    }
 
-    public class CVRSystem
-    {
-        private IntPtr _ptr;
-        public CVRSystem(IntPtr ptr) { _ptr = ptr; }
+        public static ETrackedDeviceClass GetTrackedDeviceClass(uint i)
+        {
+            if (_systemPtr == IntPtr.Zero) return ETrackedDeviceClass.Invalid;
+            try { return (ETrackedDeviceClass)NativeEntrypoints.VR_IVRSystem_GetTrackedDeviceClass(_systemPtr, i); }
+            catch { return ETrackedDeviceClass.Invalid; }
+        }
 
-        public ETrackedDeviceClass GetTrackedDeviceClass(uint i)
-            => (ETrackedDeviceClass)NativeEntrypoints.VR_IVRSystem_GetTrackedDeviceClass(_ptr, i);
-
-        public void GetStringTrackedDeviceProperty(uint i, ETrackedDeviceProperty prop,
+        public static void GetStringTrackedDeviceProperty(uint i, ETrackedDeviceProperty prop,
             StringBuilder sb, uint size, ref ETrackedPropertyError err)
-            => NativeEntrypoints.VR_IVRSystem_GetStringTrackedDeviceProperty(_ptr, i, (uint)prop, sb, size, ref err);
+        {
+            if (_systemPtr == IntPtr.Zero) return;
+            try { NativeEntrypoints.VR_IVRSystem_GetStringTrackedDeviceProperty(_systemPtr, i, (uint)prop, sb, size, ref err); }
+            catch { }
+        }
 
-        public void GetDeviceToAbsoluteTrackingPose(ETrackingUniverseOrigin origin,
+        public static void GetDeviceToAbsoluteTrackingPose(ETrackingUniverseOrigin origin,
             float seconds, TrackedDevicePose_t[] poses)
-            => NativeEntrypoints.VR_IVRSystem_GetDeviceToAbsoluteTrackingPose(_ptr, (uint)origin, seconds, poses, (uint)poses.Length);
+        {
+            if (_systemPtr == IntPtr.Zero) return;
+            try { NativeEntrypoints.VR_IVRSystem_GetDeviceToAbsoluteTrackingPose(_systemPtr, (uint)origin, seconds, poses, (uint)poses.Length); }
+            catch { }
+        }
     }
 
     internal static class NativeEntrypoints
@@ -71,7 +79,6 @@ namespace Valve.VR
     }
 }
 
-// ── Body tracking logic ───────────────────────────────────────────────────────
 namespace VIMBodyTracking
 {
     using Valve.VR;
@@ -110,10 +117,10 @@ namespace VIMBodyTracking
         {
             try
             {
-                if (OpenVR.System != null) return;
+                if (OpenVR.IsInitialized) return;
                 var err = EVRInitError.None;
                 OpenVR.Init(ref err, EVRApplicationType.VRApplication_Overlay);
-                Plugin.Log.LogInfo(err == EVRInitError.None ? "OpenVR ready." : $"OpenVR error: {err}");
+                Plugin.Log.LogInfo($"OpenVR init result: {err}, initialized: {OpenVR.IsInitialized}");
             }
             catch (Exception e) { Plugin.Log.LogWarning($"OpenVR init failed: {e.Message}"); }
         }
@@ -121,19 +128,27 @@ namespace VIMBodyTracking
         public void RefreshTrackerList()
         {
             DetectedTrackers.Clear();
-            var sys = OpenVR.System;
-            if (sys == null) { TryInitOpenVR(); sys = OpenVR.System; }
-            if (sys == null) { Plugin.Log.LogWarning("OpenVR.System null."); return; }
+
+            if (!OpenVR.IsInitialized)
+            {
+                TryInitOpenVR();
+                if (!OpenVR.IsInitialized)
+                {
+                    Plugin.Log.LogWarning("OpenVR not initialized.");
+                    return;
+                }
+            }
 
             for (uint i = 0; i < OpenVR.k_unMaxTrackedDeviceCount; i++)
             {
-                if (sys.GetTrackedDeviceClass(i) != ETrackedDeviceClass.GenericTracker) continue;
+                if (OpenVR.GetTrackedDeviceClass(i) != ETrackedDeviceClass.GenericTracker) continue;
                 var sb = new StringBuilder(64);
                 var err = ETrackedPropertyError.TrackedProp_Success;
-                sys.GetStringTrackedDeviceProperty(i, ETrackedDeviceProperty.Prop_SerialNumber_String, sb, 64, ref err);
+                OpenVR.GetStringTrackedDeviceProperty(i, ETrackedDeviceProperty.Prop_SerialNumber_String, sb, 64, ref err);
                 DetectedTrackers.Add(new TrackerDevice { Index = (int)i, Serial = sb.ToString() });
+                Plugin.Log.LogInfo($"Tracker: [{i}] {sb}");
             }
-            Plugin.Log.LogInfo($"Found {DetectedTrackers.Count} tracker(s).");
+            Plugin.Log.LogInfo($"Total trackers: {DetectedTrackers.Count}");
         }
 
         public void AutoAssignTracker()
@@ -145,11 +160,10 @@ namespace VIMBodyTracking
         private void ApplyChestPose()
         {
             if (ChestTrackerIndex < 0 || ChestTrackerIndex >= DetectedTrackers.Count) return;
-            var sys = OpenVR.System;
-            if (sys == null) return;
+            if (!OpenVR.IsInitialized) return;
 
             var poses = new TrackedDevicePose_t[OpenVR.k_unMaxTrackedDeviceCount];
-            sys.GetDeviceToAbsoluteTrackingPose(ETrackingUniverseOrigin.TrackingUniverseStanding, 0, poses);
+            OpenVR.GetDeviceToAbsoluteTrackingPose(ETrackingUniverseOrigin.TrackingUniverseStanding, 0, poses);
 
             uint idx = (uint)DetectedTrackers[ChestTrackerIndex].Index;
             if (!poses[idx].bPoseIsValid) return;
