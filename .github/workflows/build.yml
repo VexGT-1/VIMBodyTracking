@@ -10,8 +10,8 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '6.0.x'
-      - name: Add NuGet source
-        run: dotnet nuget add source https://api.nuget.org/v3/index.json --name nuget.org
+      - name: Add BepInEx NuGet feed
+        run: dotnet nuget add source https://nuget.bepinex.dev/v3/index.json --name bepinex
       - name: Restore
         run: dotnet restore VIMBodyTracking/VIMBodyTracking.csproj
       - name: Build
