@@ -9,7 +9,7 @@
   <ItemGroup>
     <PackageReference Include="BepInEx.Core" Version="5.4.21" />
     <PackageReference Include="UnityEngine.Modules" Version="2021.3.33" />
-    <PackageReference Include="OpenVR.NET" Version="1.0.9" />
+    <PackageReference Include="OpenVR.NET" Version="0.8.5" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="../Plugin.cs" />
