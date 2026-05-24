@@ -24,7 +24,6 @@ namespace VIMBodyTracking
         {
             Instance = this;
             Log = Logger;
-
             CfgEnabled = Config.Bind("General", "Enabled", true, "Master toggle");
             CfgSmoothingChest = Config.Bind("Smoothing", "ChestSmoothing", 8f, "Chest lerp speed 1-20");
             CfgOffsetChestY = Config.Bind("Offsets", "ChestOffsetY", 0f, "Chest Y offset");
