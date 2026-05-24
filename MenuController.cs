@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityEngine.XR;
 
 namespace VIMBodyTracking
 {
@@ -58,7 +57,8 @@ namespace VIMBodyTracking
 
             if (mgr.DetectedTrackers.Count == 0)
             {
-                GUILayout.Label("No trackers found. Turn on SteamVR trackers.");
+                GUILayout.Label("No trackers found.");
+                GUILayout.Label("Make sure Virtual Desktop tracker emulation is on.");
             }
             else
             {
@@ -66,7 +66,7 @@ namespace VIMBodyTracking
                 {
                     var t = mgr.DetectedTrackers[i];
                     string isChest = i == mgr.ChestTrackerIndex ? " <- CHEST" : "";
-                    GUILayout.Label($"[{i}] {t.name}{isChest}");
+                    GUILayout.Label($"[{i}] {t.Serial}{isChest}");
                 }
             }
 
@@ -76,11 +76,14 @@ namespace VIMBodyTracking
 
             GUILayout.BeginHorizontal();
             GUILayout.Label("Manual:", GUILayout.Width(60));
-            if (GUILayout.Button("<", GUILayout.Width(28))) mgr.ChestTrackerIndex = Mathf.Max(-1, mgr.ChestTrackerIndex - 1);
+            if (GUILayout.Button("<", GUILayout.Width(28)))
+                mgr.ChestTrackerIndex = Mathf.Max(-1, mgr.ChestTrackerIndex - 1);
             GUILayout.Label(mgr.ChestTrackerIndex < 0 ? "None" : $"[{mgr.ChestTrackerIndex}]", GUILayout.Width(50));
-            if (GUILayout.Button(">", GUILayout.Width(28))) mgr.ChestTrackerIndex = Mathf.Min(mgr.DetectedTrackers.Count - 1, mgr.ChestTrackerIndex + 1);
+            if (GUILayout.Button(">", GUILayout.Width(28)))
+                mgr.ChestTrackerIndex = Mathf.Min(mgr.DetectedTrackers.Count - 1, mgr.ChestTrackerIndex + 1);
             GUILayout.EndHorizontal();
 
+            GUILayout.Space(4);
             if (GUILayout.Button("Refresh Trackers", GUILayout.Height(26)))
                 mgr.RefreshTrackerList();
         }
