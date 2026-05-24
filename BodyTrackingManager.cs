@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using OpenVR.NET;
-using OpenVR.NET.Manifests;
+
 
 namespace VIMBodyTracking
 {
